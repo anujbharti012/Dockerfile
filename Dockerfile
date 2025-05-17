@@ -3,7 +3,7 @@ FROM ubuntu:22.04
 # Install dependencies
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y sudo curl ffmpeg git locales nano python3-pip screen ssh unzip wget && \
+    apt-get install -y sudo curl ffmpeg git locales nano python3-pip screen ssh unzip wget python3 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -31,19 +31,65 @@ RUN wget -O ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux
     rm ngrok.zip && \
     chmod +x ngrok
 
-# Create startup script
-RUN echo '#!/bin/bash' > /start.sh && \
-    echo 'if [ -z "$NGROK_TOKEN" ]; then' >> /start.sh && \
-    echo '  echo "Error: NGROK_TOKEN is not set. Please set it in your Render environment variables."' >> /start.sh && \
-    echo '  exit 1' >> /start.sh && \
-    echo 'fi' >> /start.sh && \
-    echo './ngrok config add-authtoken ${NGROK_TOKEN}' >> /start.sh && \
-    echo './ngrok tcp --region ap 22 --log=stdout > /var/log/ngrok.log 2>&1 &' >> /start.sh && \
-    echo 'echo "ngrok started, waiting for tunnel URL..."' >> /start.sh && \
-    echo 'sleep 5' >> /start.sh && \
-    echo 'curl -s http://localhost:4040/api/tunnels | grep -o "tcp://.*"' >> /start.sh && \
-    echo '/usr/sbin/sshd -D' >> /start.sh && \
-    chmod +x /start.sh
+# Create startup script with proper error handling
+COPY <<'EOT' /start.sh
+#!/bin/bash
+if [ -z "$NGROK_TOKEN" ]; then
+  echo "Error: NGROK_TOKEN is not set. Please set it in your Render environment variables."
+  exit 1
+fi
+
+# Start a simple web server on the PORT Render assigns (for health checks)
+if [ -n "$PORT" ]; then
+  echo "Starting web server on PORT ${PORT}..."
+  python3 -c "
+import http.server
+import socketserver
+import os
+import threading
+
+PORT = int(os.environ.get('PORT', 10000))
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        self.wfile.write(b'SSH Server is running. Use the ngrok tunnel to connect.')
+
+def run_server():
+    with socketserver.TCPServer(('', PORT), Handler) as httpd:
+        print(f'Serving HTTP on port {PORT}')
+        httpd.serve_forever()
+
+thread = threading.Thread(target=run_server)
+thread.daemon = True
+thread.start()
+" &
+else
+  echo "Warning: PORT environment variable not set by Render"
+fi
+
+# Configure and start ngrok
+./ngrok config add-authtoken ${NGROK_TOKEN}
+./ngrok tcp --region ap 22 --log=stdout &
+
+echo "ngrok started, waiting for tunnel URL..."
+# Give ngrok time to start and create the API
+sleep 10
+# Try to get the tunnel URL
+if curl -s http://localhost:4040/api/tunnels | grep -q "tcp://"; then
+  echo "Your SSH tunnel is ready:"
+  curl -s http://localhost:4040/api/tunnels | grep -o "tcp://[^\"]*"
+else
+  echo "Warning: Could not get ngrok tunnel URL. Check logs."
+fi
+
+echo "Starting SSH server..."
+/usr/sbin/sshd -D
+EOT
+
+RUN chmod +x /start.sh
 
 # Expose necessary ports
 EXPOSE 22 80 443 3306 4040 8080 8888 5130 5131 5132 5133 5134 5135
