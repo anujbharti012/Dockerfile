@@ -26,7 +26,7 @@ RUN echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && \
 # Download and setup ngrok
 ARG NGROK_TOKEN
 ENV NGROK_TOKEN=${NGROK_TOKEN}
-RUN wget -O ngrok.zip https://bin.nodesource.com/v3-stable-linux-amd64.zip && \
+RUN wget -O ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip && \
     unzip ngrok.zip && \
     rm ngrok.zip && \
     chmod +x ngrok
