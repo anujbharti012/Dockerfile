@@ -3,12 +3,15 @@ FROM ubuntu:latest
 # Set up environment
 RUN apt update -y && \
     apt upgrade -y && \
-    apt install -y locales ssh wget unzip python3-flask && \
-    rm -rf /var/lib/apt/lists/*
+    apt install -y locales ssh wget unzip python3 python3-pip && \
+    rm -rf /var/lib/apt/lists/* && \
+    pip install flask gunicorn
 
 # Set locale
 RUN localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
 ENV LANG en_US.utf8
+ENV FLASK_APP=/app.py
+ENV FLASK_ENV=production
 
 # Install ngrok
 ARG NGROK_TOKEN
@@ -29,23 +32,28 @@ RUN echo 'PermitRootLogin no' >> /etc/ssh/sshd_config && \
     echo 'PasswordAuthentication no' >> /etc/ssh/sshd_config && \
     echo 'AllowUsers tunneluser' >> /etc/ssh/sshd_config
 
-# Create web server for Render.com (required)
-RUN echo "from flask import Flask; app = Flask(__name__)" > /webapp.py && \
-    echo "@app.route('/')" >> /webapp.py && \
-    echo "def home(): return 'SSH tunnel active. Use ngrok endpoint to connect.', 200" >> /webapp.py
+# Create proper Flask application
+RUN echo "from flask import Flask" > /app.py && \
+    echo "app = Flask(__name__)" >> /app.py && \
+    echo "@app.route('/')" >> /app.py && \
+    echo "def home():" >> /app.py && \
+    echo "    return 'SSH tunnel active. Use ngrok endpoint to connect.', 200" >> /app.py && \
+    echo "@app.route('/health')" >> /app.py && \
+    echo "def health():" >> /app.py && \
+    echo "    return 'OK', 200" >> /app.py
 
 # Startup script
 RUN echo "#!/bin/bash" > /start.sh && \
     echo "./ngrok config add-authtoken \${NGROK_TOKEN} &&" >> /start.sh && \
     echo "./ngrok tcp 22 &" >> /start.sh && \
-    echo "flask run --host=0.0.0.0 --port=80 &" >> /start.sh && \
+    echo "gunicorn --bind 0.0.0.0:80 app:app &" >> /start.sh && \
     echo "/usr/sbin/sshd -D" >> /start.sh && \
     chmod +x /start.sh
 
-# Required ports (22 for SSH, 80 for web)
+# Required ports (80 for web, 22 for SSH)
 EXPOSE 80 22
 
 HEALTHCHECK --interval=30s --timeout=10s \
-    CMD curl -f http://localhost/ || exit 1
+    CMD curl -f http://localhost/health || exit 1
 
 CMD ["/start.sh"]
