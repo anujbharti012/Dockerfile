@@ -1,22 +1,50 @@
 FROM ubuntu:22.04
 
-# Avoid user interaction during package installation
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Update and install packages in a single RUN to reduce layers
-RUN apt-get update && apt-get upgrade -y && \
-    apt-get install -y sudo curl ffmpeg git locales nano python3-pip screen ssh unzip wget tzdata && \
-    localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8 && \
-    curl -sL https://deb.nodesource.com/setup_21.x | bash - && \
-    apt-get install -y nodejs && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
 # Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US:en
 ENV LC_ALL=en_US.UTF-8
 ENV TZ=UTC
+ENV PORT=8080
+
+# Update and install core packages
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y sudo curl ffmpeg git locales nano python3-pip python3-dev python3-venv \
+    build-essential libssl-dev libffi-dev screen ssh unzip wget tzdata \
+    python3-numpy python3-pandas python3-matplotlib python3-scipy python3-sklearn \
+    python3-tk python3-setuptools python3-wheel && \
+    localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8 && \
+    curl -sL https://deb.nodesource.com/setup_21.x | bash - && \
+    apt-get install -y nodejs && \
+    pip3 install --upgrade pip && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install data science and machine learning packages
+RUN pip3 install --no-cache-dir numpy pandas matplotlib seaborn scikit-learn \
+    jupyter notebook jupyterlab ipywidgets \
+    statsmodels scipy xgboost lightgbm catboost
+
+# Install deep learning frameworks with CPU support
+RUN pip3 install --no-cache-dir tensorflow tensorflow-hub keras \
+    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# Install NLP libraries
+RUN pip3 install --no-cache-dir nltk spacy transformers \
+    gensim textblob wordcloud && \
+    python3 -m spacy download en_core_web_sm && \
+    python3 -m nltk.downloader punkt stopwords wordnet
+
+# Install web development and data visualization packages
+RUN pip3 install --no-cache-dir flask django fastapi uvicorn \
+    dash plotly streamlit gradio \
+    bokeh holoviews hvplot altair
+
+# Install database and utility libraries
+RUN pip3 install --no-cache-dir sqlalchemy pymysql psycopg2-binary \
+    requests beautifulsoup4 scrapy selenium \
+    pytest black isort mypy pylint
 
 # Set up ngrok
 ARG NGROK_TOKEN
@@ -32,42 +60,12 @@ RUN mkdir -p /run/sshd && \
     echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && \
     echo root:choco | chpasswd
 
-# Render specific configuration - PORT is required by Render
-ENV PORT=8080
+# Create a start script as a separate file
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
 
-# Create a simple web server to satisfy Render's port detection requirements
-RUN echo '#!/bin/bash' > /web.sh && \
-    echo 'echo "Starting simple web server on port 8080"' >> /web.sh && \
-    echo 'mkdir -p /var/www/html' >> /web.sh && \
-    echo 'echo "<html><body><h1>Service is running</h1><p>SSH tunnel is active.</p></body></html>" > /var/www/html/index.html' >> /web.sh && \
-    echo 'cd /var/www/html && python3 -m http.server $PORT &' >> /web.sh && \
-    chmod +x /web.sh
-
-# Create start script with proper line breaks
-RUN echo '#!/bin/bash' > /start.sh && \
-    echo '' >> /start.sh && \
-    echo '# Start web server for Render' >> /start.sh && \
-    echo '/web.sh' >> /start.sh && \
-    echo '' >> /start.sh && \
-    echo '# Configure ngrok with auth token' >> /start.sh && \
-    echo 'if [ -z "$NGROK_TOKEN" ]; then' >> /start.sh && \
-    echo '  echo "Error: NGROK_TOKEN is not set. Please set it in your environment variables."' >> /start.sh && \
-    echo '  exit 1' >> /start.sh && \
-    echo 'fi' >> /start.sh && \
-    echo '' >> /start.sh && \
-    echo '# Start ngrok in the background' >> /start.sh && \
-    echo './ngrok config add-authtoken ${NGROK_TOKEN}' >> /start.sh && \
-    echo './ngrok tcp --region ap 22 &' >> /start.sh && \
-    echo '' >> /start.sh && \
-    echo '# Wait for ngrok to establish connection' >> /start.sh && \
-    echo 'sleep 5' >> /start.sh && \
-    echo '' >> /start.sh && \
-    echo '# Start SSH server' >> /start.sh && \
-    echo '/usr/sbin/sshd -D' >> /start.sh && \
-    chmod +x /start.sh
-
-# Expose required ports (8080 is critical for Render)
-EXPOSE 8080 22
+# Expose required ports
+EXPOSE 8080 22 8888
 
 # Run the start script
-CMD ["/start.sh"]
+CMD ["/bin/bash", "/start.sh"]
