@@ -1,11 +1,9 @@
 FROM ubuntu:latest
 
-# Set up environment (split into multiple RUN commands for better error handling)
+# Set up environment
 RUN apt-get update -y && \
-    apt-get upgrade -y --no-install-recommends
-
-# Install system dependencies first
-RUN apt-get install -y --no-install-recommends \
+    apt-get upgrade -y --no-install-recommends && \
+    apt-get install -y --no-install-recommends \
     locales \
     ssh \
     wget \
@@ -13,17 +11,17 @@ RUN apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
+    curl \
     && rm -rf /var/lib/apt/lists/*
-
-# Set up Python environment
-RUN python3 -m pip install --upgrade pip && \
-    python3 -m pip install flask gunicorn
 
 # Set locale
 RUN localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
 ENV LANG en_US.utf8
-ENV FLASK_APP=app.py
-ENV FLASK_ENV=production
+
+# Install Python packages using ensurepip
+RUN python3 -m ensurepip --upgrade && \
+    python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    python3 -m pip install --no-cache-dir flask gunicorn
 
 # Install ngrok
 ARG NGROK_TOKEN
@@ -53,6 +51,9 @@ RUN echo "from flask import Flask" > /app.py && \
     echo "@app.route('/health')" >> /app.py && \
     echo "def health():" >> /app.py && \
     echo "    return 'OK', 200" >> /app.py
+
+ENV FLASK_APP=app.py
+ENV FLASK_ENV=production
 
 # Startup script
 RUN echo "#!/bin/bash" > /start.sh && \
