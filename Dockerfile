@@ -1,16 +1,24 @@
-FROM ubuntu:latest
+FROM ubuntu:22.04
 
-# Install dependencies
-RUN apt update -y && \
-    apt upgrade -y && \
-    apt install -y locales ssh wget unzip net-tools python3 && \
+# Avoid user interaction during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Update and install packages in a single RUN to reduce layers
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y sudo curl ffmpeg git locales nano python3-pip screen ssh unzip wget tzdata && \
+    localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8 && \
+    curl -sL https://deb.nodesource.com/setup_21.x | bash - && \
+    apt-get install -y nodejs && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Set locale
-RUN localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
-ENV LANG en_US.utf8
+# Set environment variables
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+ENV TZ=UTC
 
-# Install Ngrok
+# Set up ngrok
 ARG NGROK_TOKEN
 ENV NGROK_TOKEN=${NGROK_TOKEN}
 RUN wget -q -O ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip && \
@@ -20,27 +28,42 @@ RUN wget -q -O ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-li
 
 # Configure SSH
 RUN mkdir -p /run/sshd && \
-    echo "Port 2222" >> /etc/ssh/sshd_config && \
-    echo "ListenAddress 0.0.0.0" >> /etc/ssh/sshd_config && \
-    echo "PermitRootLogin yes" >> /etc/ssh/sshd_config && \
+    echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && \
     echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && \
-    echo "root:choco" | chpasswd
+    echo root:choco | chpasswd
 
-# Startup script (Ngrok + SSH + HTTP server)
-RUN echo "#!/bin/bash" > /daxx.sh && \
-    echo "./ngrok config add-authtoken ${NGROK_TOKEN} || echo 'Ngrok auth failed'" >> /daxx.sh && \
-    echo "./ngrok tcp 2222 &" >> /daxx.sh && \
-    echo "python3 -m http.server 8080 &" >> /daxx.sh && \
-    echo "sleep 5" >> /daxx.sh && \
-    echo "netstat -tuln" >> /daxx.sh && \
-    echo "/usr/sbin/sshd -D -e" >> /daxx.sh && \
-    chmod +x /daxx.sh
+# Create healthcheck script
+RUN echo '#!/bin/bash\necho "Server is running!"' > /healthcheck.sh && \
+    chmod +x /healthcheck.sh
 
-# Expose HTTP (for Render) + SSH (for Ngrok)
-EXPOSE 8080 2222
+# Create startup script with better error handling
+RUN echo '#!/bin/bash\n\
+# Configure ngrok with auth token\n\
+if [ -z "$NGROK_TOKEN" ]; then\n\
+  echo "Error: NGROK_TOKEN is not set. Please set it in your environment variables."\n\
+  exit 1\n\
+fi\n\
+\n\
+# Start ngrok in the background\n\
+./ngrok config add-authtoken ${NGROK_TOKEN}\n\
+./ngrok tcp --region ap 22 --log=stdout > /var/log/ngrok.log 2>&1 &\n\
+\n\
+# Wait for ngrok to establish connection\n\
+sleep 5\n\
+\n\
+# Print ngrok tunnel information\n\
+curl -s http://localhost:4040/api/tunnels | grep -o "\"public_url\":\"[^\"]*\"" | sed "s/\"public_url\":\"/SSH Access: /g" | sed "s/\"//g"\n\
+\n\
+# Start SSH server\n\
+/usr/sbin/sshd -D\n\
+' > /start.sh && \
+    chmod +x /start.sh
 
-# Health check on HTTP (Render will check this)
-HEALTHCHECK --interval=30s --timeout=30s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8080 || exit 1
+# Expose ports
+EXPOSE 22 80 443 3306 4040 8080 8888 5130-5135
 
-CMD ["/daxx.sh"]
+# Set healthcheck
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 CMD /healthcheck.sh
+
+# Set the entrypoint
+CMD ["/start.sh"]
