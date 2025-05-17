@@ -1,70 +1,41 @@
 FROM ubuntu:latest
 
-# Set environment variables to avoid interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
+# Set up environment and install dependencies
+RUN apt update -y && \
+    apt upgrade -y && \
+    apt install -y locales ssh wget unzip && \
+    rm -rf /var/lib/apt/lists/*
 
-# Configure locale and timezone
-RUN apt-get update -y && \
-    apt-get install -y locales tzdata && \
-    localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8 && \
-    ln -fs /usr/share/zoneinfo/UTC /etc/localtime && \
-    dpkg-reconfigure --frontend noninteractive tzdata
-
+# Set locale
+RUN localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
 ENV LANG en_US.utf8
-ENV TZ UTC
 
-# Install necessary packages
-RUN apt-get install -y --no-install-recommends \
-    openssh-server \
-    wget \
-    unzip \
-    net-tools \
-    iputils-ping \
-    nano \
-    htop \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Configure SSH
-RUN mkdir /var/run/sshd && \
-    echo "PermitRootLogin yes" >> /etc/ssh/sshd_config && \
-    echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && \
-    echo "GatewayPorts yes" >> /etc/ssh/sshd_config && \
-    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
-    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
-
-# Set root password (change 'daxx' to your preferred password)
-RUN echo 'root:choco' | chpasswd
-
-# Install Ngrok
+# Install ngrok
 ARG NGROK_TOKEN
 ENV NGROK_TOKEN=${NGROK_TOKEN}
-RUN wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip -O ngrok.zip && \
+RUN wget -q -O ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip && \
     unzip ngrok.zip && \
     rm ngrok.zip && \
     chmod +x ngrok
 
+# Configure SSH
+RUN mkdir -p /run/sshd && \
+    echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && \
+    echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config && \
+    echo 'root:choco' | chpasswd
+
 # Create startup script
-RUN echo '#!/bin/bash' > /start.sh && \
-    echo 'service ssh start' >> /start.sh && \
-    echo './ngrok config add-authtoken $NGROK_TOKEN' >> /start.sh && \
-    echo './ngrok tcp 22 --log=stdout &' >> /start.sh && \
-    echo 'echo "Waiting for Ngrok to initialize..."' >> /start.sh && \
-    echo 'sleep 5' >> /start.sh && \
-    echo 'curl -s http://localhost:4040/api/tunnels | grep -o "tcp://[0-9a-z.-]*:[0-9]*"' >> /start.sh && \
-    echo 'echo "SSH is ready for connection!"' >> /start.sh && \
-    echo '/usr/sbin/sshd -D' >> /start.sh && \
-    chmod +x /start.sh
+RUN echo "#!/bin/bash" > /daxx.sh && \
+    echo "./ngrok config add-authtoken ${NGROK_TOKEN} &&" >> /daxx.sh && \
+    echo "./ngrok tcp 22 &" >> /daxx.sh && \
+    echo "/usr/sbin/sshd -D" >> /daxx.sh && \
+    chmod +x /daxx.sh
 
-# Health check (optional)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD netstat -an | grep 22 | grep LISTEN || exit 1
-
-# Expose SSH port
+# Expose SSH port (ngrok will expose this through its tunnel)
 EXPOSE 22
 
-# Clean up
-RUN apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+# Health check (optional)
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD netstat -an | grep 22 | grep LISTEN || exit 1
 
-CMD ["/start.sh"]
+CMD ["/daxx.sh"]
