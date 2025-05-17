@@ -32,38 +32,42 @@ RUN mkdir -p /run/sshd && \
     echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && \
     echo root:choco | chpasswd
 
-# Create healthcheck script
-RUN echo '#!/bin/bash\necho "Server is running!"' > /healthcheck.sh && \
-    chmod +x /healthcheck.sh
+# Render specific configuration - PORT is required by Render
+ENV PORT=8080
 
-# Create startup script with better error handling
-RUN echo '#!/bin/bash\n\
-# Configure ngrok with auth token\n\
-if [ -z "$NGROK_TOKEN" ]; then\n\
-  echo "Error: NGROK_TOKEN is not set. Please set it in your environment variables."\n\
-  exit 1\n\
-fi\n\
-\n\
-# Start ngrok in the background\n\
-./ngrok config add-authtoken ${NGROK_TOKEN}\n\
-./ngrok tcp --region ap 22 --log=stdout > /var/log/ngrok.log 2>&1 &\n\
-\n\
-# Wait for ngrok to establish connection\n\
-sleep 5\n\
-\n\
-# Print ngrok tunnel information\n\
-curl -s http://localhost:4040/api/tunnels | grep -o "\"public_url\":\"[^\"]*\"" | sed "s/\"public_url\":\"/SSH Access: /g" | sed "s/\"//g"\n\
-\n\
-# Start SSH server\n\
-/usr/sbin/sshd -D\n\
-' > /start.sh && \
+# Create a simple web server to satisfy Render's port detection requirements
+RUN echo '#!/bin/bash' > /web.sh && \
+    echo 'echo "Starting simple web server on port 8080"' >> /web.sh && \
+    echo 'mkdir -p /var/www/html' >> /web.sh && \
+    echo 'echo "<html><body><h1>Service is running</h1><p>SSH tunnel is active.</p></body></html>" > /var/www/html/index.html' >> /web.sh && \
+    echo 'cd /var/www/html && python3 -m http.server $PORT &' >> /web.sh && \
+    chmod +x /web.sh
+
+# Create start script with proper line breaks
+RUN echo '#!/bin/bash' > /start.sh && \
+    echo '' >> /start.sh && \
+    echo '# Start web server for Render' >> /start.sh && \
+    echo '/web.sh' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '# Configure ngrok with auth token' >> /start.sh && \
+    echo 'if [ -z "$NGROK_TOKEN" ]; then' >> /start.sh && \
+    echo '  echo "Error: NGROK_TOKEN is not set. Please set it in your environment variables."' >> /start.sh && \
+    echo '  exit 1' >> /start.sh && \
+    echo 'fi' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '# Start ngrok in the background' >> /start.sh && \
+    echo './ngrok config add-authtoken ${NGROK_TOKEN}' >> /start.sh && \
+    echo './ngrok tcp --region ap 22 &' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '# Wait for ngrok to establish connection' >> /start.sh && \
+    echo 'sleep 5' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '# Start SSH server' >> /start.sh && \
+    echo '/usr/sbin/sshd -D' >> /start.sh && \
     chmod +x /start.sh
 
-# Expose ports
-EXPOSE 22 80 443 3306 4040 8080 8888 5130-5135
+# Expose required ports (8080 is critical for Render)
+EXPOSE 8080 22
 
-# Set healthcheck
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 CMD /healthcheck.sh
-
-# Set the entrypoint
+# Run the start script
 CMD ["/start.sh"]
