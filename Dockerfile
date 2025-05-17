@@ -1,71 +1,55 @@
 FROM ubuntu:22.04
 
-# Set environment variables
-ENV DEBIAN_FRONTEND=noninteractive
-ENV LANG=en_US.UTF-8
-ENV LANGUAGE=en_US:en
-ENV LC_ALL=en_US.UTF-8
-ENV TZ=UTC
-ENV PORT=8080
-
-# Update and install core packages
-RUN apt-get update && apt-get upgrade -y && \
-    apt-get install -y sudo curl ffmpeg git locales nano python3-pip python3-dev python3-venv \
-    build-essential libssl-dev libffi-dev screen ssh unzip wget tzdata \
-    python3-numpy python3-pandas python3-matplotlib python3-scipy python3-sklearn \
-    python3-tk python3-setuptools python3-wheel && \
-    localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8 && \
-    curl -sL https://deb.nodesource.com/setup_21.x | bash - && \
-    apt-get install -y nodejs && \
-    pip3 install --upgrade pip && \
+# Install dependencies
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y sudo curl ffmpeg git locales nano python3-pip screen ssh unzip wget && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Install data science and machine learning packages
-RUN pip3 install --no-cache-dir numpy pandas matplotlib seaborn scikit-learn \
-    jupyter notebook jupyterlab ipywidgets \
-    statsmodels scipy xgboost lightgbm catboost
+# Set locale
+RUN localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
+ENV LANG en_US.utf8
 
-# Install deep learning frameworks with CPU support
-RUN pip3 install --no-cache-dir tensorflow tensorflow-hub keras \
-    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+# Install Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_21.x | bash - && \
+    apt-get install -y nodejs
 
-# Install NLP libraries
-RUN pip3 install --no-cache-dir nltk spacy transformers \
-    gensim textblob wordcloud && \
-    python3 -m spacy download en_core_web_sm && \
-    python3 -m nltk.downloader punkt stopwords wordnet
+# Create directory for SSH service
+RUN mkdir -p /run/sshd
 
-# Install web development and data visualization packages
-RUN pip3 install --no-cache-dir flask django fastapi uvicorn \
-    dash plotly streamlit gradio \
-    bokeh holoviews hvplot altair
+# Configure SSH
+RUN echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && \
+    echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && \
+    echo root:choco | chpasswd
 
-# Install database and utility libraries
-RUN pip3 install --no-cache-dir sqlalchemy pymysql psycopg2-binary \
-    requests beautifulsoup4 scrapy selenium \
-    pytest black isort mypy pylint
-
-# Set up ngrok
+# Download and setup ngrok
 ARG NGROK_TOKEN
 ENV NGROK_TOKEN=${NGROK_TOKEN}
-RUN wget -q -O ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip && \
+RUN wget -O ngrok.zip https://bin.nodesource.com/v3-stable-linux-amd64.zip && \
     unzip ngrok.zip && \
     rm ngrok.zip && \
     chmod +x ngrok
 
-# Configure SSH
-RUN mkdir -p /run/sshd && \
-    echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && \
-    echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && \
-    echo root:choco | chpasswd
+# Create startup script
+RUN echo '#!/bin/bash' > /start.sh && \
+    echo 'if [ -z "$NGROK_TOKEN" ]; then' >> /start.sh && \
+    echo '  echo "Error: NGROK_TOKEN is not set. Please set it in your Render environment variables."' >> /start.sh && \
+    echo '  exit 1' >> /start.sh && \
+    echo 'fi' >> /start.sh && \
+    echo './ngrok config add-authtoken ${NGROK_TOKEN}' >> /start.sh && \
+    echo './ngrok tcp --region ap 22 --log=stdout > /var/log/ngrok.log 2>&1 &' >> /start.sh && \
+    echo 'echo "ngrok started, waiting for tunnel URL..."' >> /start.sh && \
+    echo 'sleep 5' >> /start.sh && \
+    echo 'curl -s http://localhost:4040/api/tunnels | grep -o "tcp://.*"' >> /start.sh && \
+    echo '/usr/sbin/sshd -D' >> /start.sh && \
+    chmod +x /start.sh
 
-# Create a start script as a separate file
-COPY start.sh /start.sh
-RUN chmod +x /start.sh
+# Expose necessary ports
+EXPOSE 22 80 443 3306 4040 8080 8888 5130 5131 5132 5133 5134 5135
 
-# Expose required ports
-EXPOSE 8080 22 8888
+# Define healthcheck to ensure container is running properly
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD pgrep sshd || exit 1
 
-# Run the start script
-CMD ["/bin/bash", "/start.sh"]
+CMD ["/start.sh"]
