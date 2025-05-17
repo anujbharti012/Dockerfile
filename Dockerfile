@@ -1,16 +1,28 @@
 FROM ubuntu:latest
 
-# Set up environment
-RUN apt update -y && \
-    apt upgrade -y && \
-    apt install -y locales ssh wget unzip python3 python3-pip && \
-    rm -rf /var/lib/apt/lists/* && \
-    pip install flask gunicorn
+# Set up environment (split into multiple RUN commands for better error handling)
+RUN apt-get update -y && \
+    apt-get upgrade -y --no-install-recommends
+
+# Install system dependencies first
+RUN apt-get install -y --no-install-recommends \
+    locales \
+    ssh \
+    wget \
+    unzip \
+    python3 \
+    python3-pip \
+    python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up Python environment
+RUN python3 -m pip install --upgrade pip && \
+    python3 -m pip install flask gunicorn
 
 # Set locale
 RUN localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
 ENV LANG en_US.utf8
-ENV FLASK_APP=/app.py
+ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
 
 # Install ngrok
