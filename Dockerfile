@@ -1,6 +1,6 @@
 FROM ubuntu:latest
 
-# 1. Install system dependencies with retries
+# 1. Install system dependencies with clean package management
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
     locales \
@@ -9,23 +9,24 @@ RUN apt-get update -y && \
     unzip \
     ca-certificates \
     curl \
+    python3 \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Set locale
 RUN localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
 ENV LANG en_US.utf8
 
-# 3. Install ngrok with retry logic and verification
-RUN for i in {1..5}; do \
-    wget -q --show-progress --progress=bar:force:noscroll -O ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip && \
-    unzip -o ngrok.zip && \
-    rm ngrok.zip && \
-    chmod +x ngrok && \
-    break || sleep 15; \
-    done && \
-    test -f ./ngrok || { echo "Failed to install ngrok"; exit 1; }
+# 3. Robust ngrok installation with multiple fallbacks
+RUN mkdir -p /tmp/ngrok && cd /tmp/ngrok && \
+    (wget -q --show-progress -O ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip || \
+     wget -q --show-progress -O ngrok.zip https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip) && \
+    unzip ngrok.zip && \
+    mv ngrok /usr/local/bin/ && \
+    chmod +x /usr/local/bin/ngrok && \
+    cd / && rm -rf /tmp/ngrok
 
-# 4. Configure SSH securely
+# 4. Configure SSH securely with proper directory structure
 RUN mkdir -p /run/sshd && \
     useradd -m -s /bin/bash tunneluser && \
     mkdir -p /home/tunneluser/.ssh && \
@@ -36,19 +37,22 @@ RUN echo 'PermitRootLogin no' >> /etc/ssh/sshd_config && \
     echo 'PasswordAuthentication no' >> /etc/ssh/sshd_config && \
     echo 'AllowUsers tunneluser' >> /etc/ssh/sshd_config
 
-# 6. Create health check endpoint
-RUN echo "SSH Tunnel Active" > /var/www/index.html
+# 6. Create web directory and health check endpoint
+RUN mkdir -p /var/www && \
+    echo "SSH Tunnel Active" > /var/www/index.html
 
-# 7. Startup script with error handling
+# 7. Robust startup script with error handling
 RUN echo "#!/bin/bash" > /start.sh && \
     echo "set -e" >> /start.sh && \
+    echo "mkdir -p /var/www" >> /start.sh && \
+    echo "echo \"SSH Tunnel Active\" > /var/www/index.html" >> /start.sh && \
     echo "if [ -z \"\${NGROK_TOKEN}\" ]; then" >> /start.sh && \
-    echo "  echo \"Error: NGROK_TOKEN not set\"" >> /start.sh && \
+    echo "  echo \"Error: NGROK_TOKEN environment variable required\"" >> /start.sh && \
     echo "  exit 1" >> /start.sh && \
     echo "fi" >> /start.sh && \
-    echo "./ngrok config add-authtoken \"\${NGROK_TOKEN}\" || { echo \"Failed to configure ngrok\"; exit 1; }" >> /start.sh && \
-    echo "./ngrok tcp 22 &" >> /start.sh && \
-    echo "python3 -m http.server 80 --directory /var/www &" >> /start.sh && \
+    echo "ngrok config add-authtoken \"\${NGROK_TOKEN}\" || { echo \"Failed to configure ngrok\"; exit 1; }" >> /start.sh && \
+    echo "ngrok tcp 22 &" >> /start.sh && \
+    echo "cd /var/www && python3 -m http.server 80 &" >> /start.sh && \
     echo "/usr/sbin/sshd -D" >> /start.sh && \
     chmod +x /start.sh
 
