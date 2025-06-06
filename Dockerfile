@@ -10,7 +10,7 @@ ENV LANG en_US.utf8
 ARG NGROK_TOKEN
 ENV NGROK_TOKEN=${NGROK_TOKEN}
 
-# Install ngrok
+# Install ngrokio
 RUN wget -O ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip
 RUN unzip ngrok.zip
 
