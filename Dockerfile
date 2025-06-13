@@ -1,101 +1,53 @@
 FROM ubuntu:22.04
 
-# Set environment variables early
-ENV LANG=en_US.utf8
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PORT=8080
+RUN apt-get -y update && apt-get -y upgrade && apt-get install -y sudo
+RUN sudo apt-get install -y curl ffmpeg git locales nano python3-pip screen ssh unzip wget
+RUN localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
+RUN curl -sL https://deb.nodesource.com/setup_21.x | bash -
+RUN sudo apt-get install -y nodejs
+ENV LANG en_US.utf8
 
-# Accept build argument
 ARG NGROK_TOKEN
 ENV NGROK_TOKEN=${NGROK_TOKEN}
 
-# Combine package installation and cleanup in single layer
-RUN apt-get update && apt-get upgrade -y && \
-    apt-get install -y \
-        curl \
-        ffmpeg \
-        git \
-        jq \
-        locales \
-        nano \
-        python3-pip \
-        screen \
-        ssh \
-        sudo \
-        unzip \
-        wget \
-        ca-certificates \
-        gnupg \
-        lsb-release && \
-    # Setup locale
-    localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8 && \
-    # Add NodeSource repository and install Node.js
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_21.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
-    apt-get update && \
-    apt-get install -y nodejs && \
-    # Install and setup ngrok
-    wget -q -O ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip && \
-    unzip -q ngrok.zip && \
-    rm ngrok.zip && \
-    chmod +x ngrok && \
-    mv ngrok /usr/local/bin/ && \
-    # Setup SSH
-    mkdir -p /run/sshd && \
-    echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && \
-    echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config && \
-    echo 'root:choco' | chpasswd && \
-    # Clean up apt cache to reduce image size
-    apt-get autoremove -y && \
-    apt-get autoclean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+# Install ngrok
+RUN wget -O ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip
+RUN unzip ngrok.zip
 
-# Create optimized startup script
-RUN echo '#!/bin/bash' > /start && \
-    echo 'set -e' >> /start && \
-    echo '' >> /start && \
-    echo '# Function to log with timestamp' >> /start && \
-    echo 'log() {' >> /start && \
-    echo '    echo "[$(date +'\''%Y-%m-%d %H:%M:%S'\')] $1"' >> /start && \
-    echo '}' >> /start && \
-    echo '' >> /start && \
-    echo '# Setup ngrok if token is provided' >> /start && \
-    echo 'if [ -n "$NGROK_TOKEN" ]; then' >> /start && \
-    echo '    log "Setting up ngrok..."' >> /start && \
-    echo '    ngrok config add-authtoken "${NGROK_TOKEN}"' >> /start && \
-    echo '    ngrok tcp --region ap 22 >/dev/null 2>&1 &' >> /start && \
-    echo '    ' >> /start && \
-    echo '    # Wait for ngrok to start and get the public URL' >> /start && \
-    echo '    log "Starting ngrok tunnel..."' >> /start && \
-    echo '    sleep 8' >> /start && \
-    echo '    ' >> /start && \
-    echo '    # Get and display SSH connection info' >> /start && \
-    echo '    if command -v curl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then' >> /start && \
-    echo '        PUBLIC_URL=$(curl -s localhost:4040/api/tunnels 2>/dev/null | jq -r '\''.tunnels[0].public_url // empty'\'' 2>/dev/null)' >> /start && \
-    echo '        if [ -n "$PUBLIC_URL" ]; then' >> /start && \
-    echo '            SSH_CMD=$(echo "$PUBLIC_URL" | sed '\''s|tcp://|ssh root@|'\'' | sed '\''s|:| -p |'\'')' >> /start && \
-    echo '            log "SSH connection command: $SSH_CMD"' >> /start && \
-    echo '        else' >> /start && \
-    echo '            log "Could not retrieve ngrok tunnel URL. Check ngrok status manually."' >> /start && \
-    echo '        fi' >> /start && \
-    echo '    fi' >> /start && \
-    echo 'else' >> /start && \
-    echo '    log "No NGROK_TOKEN provided, skipping ngrok setup"' >> /start && \
-    echo 'fi' >> /start && \
-    echo '' >> /start && \
-    echo '# Start SSH daemon' >> /start && \
-    echo 'log "Starting SSH daemon..."' >> /start && \
-    echo '/usr/sbin/sshd -D &' >> /start && \
-    echo '' >> /start && \
-    echo '# Start HTTP server for health checks' >> /start && \
-    echo 'log "Starting HTTP server on port ${PORT:-8080}..."' >> /start && \
-    echo 'exec python3 -m http.server "${PORT:-8080}" --bind 0.0.0.0' >> /start
+# Setup SSH
+RUN mkdir -p /run/sshd
+RUN echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config 
+RUN echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
+RUN echo root:choco|chpasswd
 
-# Make startup script executable
-RUN chmod +x /start
+# Create a more robust startup script
+RUN echo '#!/bin/bash' > /start
+RUN echo 'set -e' >> /start  # Exit on error
+RUN echo '' >> /start
+RUN echo '# Start SSH first' >> /start
+RUN echo '/usr/sbin/sshd' >> /start
+RUN echo '' >> /start
+RUN echo '# Start ngrok if token exists' >> /start
+RUN echo 'if [ -n "$NGROK_TOKEN" ]; then' >> /start
+RUN echo '  ./ngrok config add-authtoken ${NGROK_TOKEN} || echo "Ngrok authtoken failed"' >> /start
+RUN echo '  ./ngrok tcp --region ap 22 &>/dev/null &' >> /start
+RUN echo '  sleep 5' >> /start
+RUN echo '  echo "SSH login command:"' >> /start
+RUN echo '  curl -s localhost:4040/api/tunnels | jq -r ".tunnels[0].public_url" | sed "s/tcp:\/\//ssh root@/" || echo "Ngrok tunnel failed"' >> /start
+RUN echo 'fi' >> /start
+RUN echo '' >> /start
+RUN echo '# Start health check server last' >> /start
+RUN echo 'python3 -m http.server ${PORT:-8080} --bind 0.0.0.0' >> /start
 
-# Expose ports (consolidated and organized)
-EXPOSE 22 80 443 3306 5130-5135 8080 8888
+RUN chmod 755 /start
 
-# Use exec form for better signal handling
+# Install jq for JSON parsing
+RUN apt-get install -y jq
+
+# Expose ports
+EXPOSE 22 80 443 3306 5130 5131 5132 5133 5134 5135 8080 8888
+
+# Set the PORT environment variable with a default value
+ENV PORT=8080
+
 CMD ["/start"]
