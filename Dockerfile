@@ -50,7 +50,7 @@ RUN echo '#!/bin/bash' > /start && \
     echo 'python3 -m http.server ${PORT:-8000} --bind 0.0.0.0' >> /start && \
     chmod +x /start
 
-# Ports for SSH + HTTP
+# Ports for SSH + HTTP.
 EXPOSE 22 8000
 
 # Default port for Render health check
