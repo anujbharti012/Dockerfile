@@ -37,3 +37,4 @@ RUN echo '#!/bin/bash' > /start \
     && chmod +x /start
 
 CMD ["/start"]
+
