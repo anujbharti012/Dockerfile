@@ -2,63 +2,52 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Base setup
-RUN apt-get update && apt-get upgrade -y && apt-get install -y \
-    sudo curl ffmpeg git locales nano python2 python2-dev python-is-python2 \
-    python3-pip screen ssh unzip wget man-db manpages manpages-dev \
-    openssh-client openssh-server openssh-sftp-server openssh-known-hosts
+# Essential system packages only (as per your requirement)
+RUN apt-get -y update && \
+    apt-get -y upgrade && \
+    apt-get install -y sudo curl ffmpeg git locales nano python3-pip screen ssh unzip wget man-db manpages openssh-client openssh-server
 
-# Set locale
-RUN localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
-ENV LANG en_US.utf8
+# Locale setup
+RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
+ENV LANG en_US.UTF-8
+ENV LC_ALL en_US.UTF-8
 
-# Install pip2 safely (Ubuntu 22.04 doesn't come with it)
-RUN curl https://bootstrap.pypa.io/pip/2.7/get-pip.py --output get-pip.py && \
-    python2 get-pip.py && rm get-pip.py
-
-# Optional Node.js
-RUN curl -sL https://deb.nodesource.com/setup_21.x | bash - && \
-    apt-get install -y nodejs
-
-# Add ngrok auth token if given
+# ngrok setup
 ARG NGROK_TOKEN
 ENV NGROK_TOKEN=${NGROK_TOKEN}
-
-# Install ngrok
 RUN wget -O ngrok.zip https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip && \
     unzip ngrok.zip && rm ngrok.zip
 
-# Setup SSH
+# SSH server setup
 RUN mkdir -p /run/sshd && \
     echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && \
     echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config && \
     echo root:choco | chpasswd
 
-# Clone your bot repo and install Python 2 dependencies
+# Clone your bot and install requirements
 RUN git clone https://github.com/Choco-criminal/gand-phar-repo.git && \
     cd gand-phar-repo/Choco-master && \
-    pip2 install -r requirements.txt
+    python3 -m pip install --upgrade pip && \
+    python3 -m pip install -r requirements.txt || true
 
-# Create startup script
+# Startup script
 RUN echo '#!/bin/bash' > /start && \
     echo 'set -e' >> /start && \
-    echo '' >> /start && \
+    echo 'echo "[INFO] Starting ngrok..."' >> /start && \
     echo 'if [ -n "$NGROK_TOKEN" ]; then' >> /start && \
     echo '  ./ngrok config add-authtoken ${NGROK_TOKEN}' >> /start && \
     echo '  ./ngrok tcp --region ap 22 > /ngrok.log 2>&1 &' >> /start && \
-    echo '  sleep 2 && grep "tcp://" /ngrok.log || echo "ngrok tunnel not ready"' >> /start && \
+    echo '  sleep 2 && grep "tcp://" /ngrok.log || echo "Ngrok tunnel not ready"' >> /start && \
     echo 'fi' >> /start && \
-    echo '' >> /start && \
     echo '/usr/sbin/sshd -D &> /sshd.log &' >> /start && \
     echo 'cd gand-phar-repo/Choco-master' >> /start && \
     echo 'echo "[INFO] Starting your bot..."' >> /start && \
     echo 'bash start' >> /start && \
     chmod +x /start
 
-# Expose all required ports
+# Expose ports
 EXPOSE 22 80 443 3306 5130 5131 5132 5133 5134 5135 8080 8888 8000
 
-# Health check port fallback
 ENV PORT=8000
 
 CMD ["/start"]
