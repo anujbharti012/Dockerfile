@@ -29,13 +29,13 @@ RUN echo 'fi' >> /start
 RUN echo '/usr/sbin/sshd' >> /start
 
 # Simple HTTP server to keep the container running and respond to Render's health checks
-RUN echo 'python3 -m http.server ${PORT:-8080} --bind 0.0.0.0' >> /start
+RUN echo 'python3 -m http.server ${PORT:-8000} --bind 0.0.0.0' >> /start
 RUN chmod 755 /start
 
 # Expose ports
-EXPOSE 22 80 443 3306 5130 5131 5132 5133 5134 5135 8080 8888
+EXPOSE 22 80 443 3306 5130 5131 5132 5133 5134 5135 8080 8888 8000
 
 # Set the PORT environment variable with a default value
-ENV PORT=8080
+ENV PORT=8000
 
 CMD ["/start"]
