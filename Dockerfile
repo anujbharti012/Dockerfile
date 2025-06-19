@@ -42,8 +42,13 @@ RUN echo '#!/bin/bash' > /start && \
     echo 'fi' >> /start && \
     echo '' >> /start && \
     echo 'echo "[INFO] Starting HTTP server for Render health check..."' >> /start && \
-    echo 'python3 -m http.server ${PORT:-8000} --bind 0.0.0.0 > /dev/null 2>&1 &' >> /start && \
+    echo 'while true; do' >> /start && \
+    echo '  python3 -m http.server ${PORT:-8000} --bind 0.0.0.0' >> /start && \
+    echo '  sleep 1' >> /start && \
+    echo 'done &' >> /start && \
     echo '' >> /start && \
+    echo 'echo "[INFO] Services started. Waiting indefinitely..."' >> /start && \
+    echo 'wait' >> /start && \
     chmod +x /start
 
 # Expose ports
