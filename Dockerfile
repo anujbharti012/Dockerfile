@@ -38,15 +38,21 @@ RUN echo '#!/bin/bash' > /start && \
     echo '  echo "[INFO] Starting ngrok for SSH..."' >> /start && \
     echo '  ./ngrok config add-authtoken ${NGROK_TOKEN}' >> /start && \
     echo '  ./ngrok tcp --region ap 22 > /ngrok.log 2>&1 &' >> /start && \
-    echo '  sleep 3 && grep "tcp://" /ngrok.log || echo "Ngrok tunnel not ready."' >> /start && \
+    echo '  sleep 5' >> /start && \
     echo 'fi' >> /start && \
     echo '' >> /start && \
-    echo 'echo "[INFO] Starting HTTP server for Render health check..."' >> /start && \
-    echo 'exec python3 -m http.server ${PORT:-8000} --bind 0.0.0.0' >> /start && \
+    echo 'echo "[INFO] Starting Render health check server on port ${PORT:-8000}..."' >> /start && \
+    echo 'python3 -m http.server ${PORT:-8000} --bind 0.0.0.0 > /dev/null 2>&1 &' >> /start && \
+    echo '' >> /start && \
+    echo 'echo "[INFO] Starting separate server on port 0000..."' >> /start && \
+    echo 'python3 -m http.server 0 --bind 0.0.0.0 > /port_0000.log 2>&1 &' >> /start && \
+    echo '' >> /start && \
+    echo 'echo "[INFO] All services started. Waiting indefinitely..."' >> /start && \
+    echo 'wait' >> /start && \
     chmod +x /start
 
 # Expose ports
-EXPOSE 22 8000
+EXPOSE 22 8000 0
 
 # Set default port for Render
 ENV PORT=8000
