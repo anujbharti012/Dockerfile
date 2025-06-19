@@ -10,7 +10,7 @@ RUN apt-get -y update && \
 # Set up locale
 RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
 ENV LANG en_US.UTF-8
-ENV LC_ALL=en_US.UTF-8
+ENV LC_ALL en_US.UTF-8
 
 # Install Node.js (for PyTgCalls)
 RUN curl -fsSL https://deb.nodesource.com/setup_21.x | bash - && \
@@ -28,7 +28,7 @@ RUN mkdir -p /run/sshd && \
     echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config && \
     echo root:choco | chpasswd
 
-# Create startup script (excluding bot launch)
+# Create startup script
 RUN echo '#!/bin/bash' > /start && \
     echo 'set -e' >> /start && \
     echo 'echo "[INFO] Starting SSH..."' >> /start && \
@@ -51,5 +51,5 @@ EXPOSE 22 8000
 # Set default port for Render
 ENV PORT=8000
 
-# Start SSH and healthcheck server
+# Start SSH and HTTP server only
 CMD ["/start"]
