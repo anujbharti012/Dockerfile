@@ -30,8 +30,6 @@ RUN mkdir -p /run/sshd && \
     echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config && \
     echo root:choco | chpasswd
 
-
-
 # Create startup script
 RUN echo '#!/bin/bash' > /start && \
     echo 'set -e' >> /start && \
@@ -49,9 +47,8 @@ RUN echo '#!/bin/bash' > /start && \
     echo 'python3 -m http.server ${PORT:-8000} --bind 0.0.0.0 > /dev/null 2>&1 &' >> /start && \
     echo '' >> /start && \
     echo 'echo "[INFO] Starting your bot now..."' >> /start && \
-   
     chmod +x /start
-
+    
 # Expose ports
 EXPOSE 22 8000
 
