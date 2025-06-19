@@ -10,7 +10,7 @@ RUN apt-get -y update && \
 # Set up locale
 RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
 ENV LANG en_US.UTF-8
-ENV LC_ALL en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
 
 # Install Node.js (for PyTgCalls)
 RUN curl -fsSL https://deb.nodesource.com/setup_21.x | bash - && \
@@ -28,15 +28,7 @@ RUN mkdir -p /run/sshd && \
     echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config && \
     echo root:choco | chpasswd
 
-# Clone your bot repository
-RUN git clone https://github.com/Choco-criminal/gand-phar-repo.git
-
-# Install Python dependencies
-RUN cd gand-phar-repo/Choco-master && \
-    python3 -m pip install --upgrade pip && \
-    python3 -m pip install -r requirements.txt || true
-
-# Create startup script
+# Create startup script (excluding bot launch)
 RUN echo '#!/bin/bash' > /start && \
     echo 'set -e' >> /start && \
     echo 'echo "[INFO] Starting SSH..."' >> /start && \
@@ -51,10 +43,6 @@ RUN echo '#!/bin/bash' > /start && \
     echo '' >> /start && \
     echo 'echo "[INFO] Starting HTTP server for Render health check..."' >> /start && \
     echo 'python3 -m http.server ${PORT:-8000} --bind 0.0.0.0 > /dev/null 2>&1 &' >> /start && \
-    echo '' >> /start && \
-    echo 'echo "[INFO] Starting your bot now..."' >> /start && \
-    echo 'cd gand-phar-repo/Choco-master' >> /start && \
-    echo 'bash start' >> /start && \
     chmod +x /start
 
 # Expose ports
@@ -63,5 +51,5 @@ EXPOSE 22 8000
 # Set default port for Render
 ENV PORT=8000
 
-# Start the bot and services
+# Start SSH and healthcheck server
 CMD ["/start"]
