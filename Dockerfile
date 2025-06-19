@@ -38,17 +38,11 @@ RUN echo '#!/bin/bash' > /start && \
     echo '  echo "[INFO] Starting ngrok for SSH..."' >> /start && \
     echo '  ./ngrok config add-authtoken ${NGROK_TOKEN}' >> /start && \
     echo '  ./ngrok tcp --region ap 22 > /ngrok.log 2>&1 &' >> /start && \
-    echo '  sleep 5' >> /start && \
+    echo '  sleep 3 && grep "tcp://" /ngrok.log || echo "Ngrok tunnel not ready."' >> /start && \
     echo 'fi' >> /start && \
     echo '' >> /start && \
     echo 'echo "[INFO] Starting HTTP server for Render health check..."' >> /start && \
-    echo 'while true; do' >> /start && \
-    echo '  python3 -m http.server ${PORT:-8000} --bind 0.0.0.0' >> /start && \
-    echo '  sleep 1' >> /start && \
-    echo 'done &' >> /start && \
-    echo '' >> /start && \
-    echo 'echo "[INFO] Services started. Waiting indefinitely..."' >> /start && \
-    echo 'wait' >> /start && \
+    echo 'exec python3 -m http.server ${PORT:-8000} --bind 0.0.0.0' >> /start && \
     chmod +x /start
 
 # Expose ports
