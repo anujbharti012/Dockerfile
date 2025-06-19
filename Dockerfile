@@ -42,7 +42,10 @@ RUN echo '#!/bin/bash' > /start && \
     echo 'fi' >> /start && \
     echo '' >> /start && \
     echo 'echo "[INFO] Starting HTTP server for Render health check..."' >> /start && \
-    echo 'python3 -m http.server ${PORT:-8000} --bind 0.0.0.0 > /dev/null 2>&1 &' >> /start && \
+    echo 'python3 -m http.server ${PORT:-8000} --bind 0.0.0.0 &' >> /start && \
+    echo '' >> /start && \
+    echo 'echo "[INFO] Holding container open..."' >> /start && \
+    echo 'tail -f /dev/null' >> /start && \
     chmod +x /start
 
 # Expose ports
@@ -51,5 +54,5 @@ EXPOSE 22 8000
 # Set default port for Render
 ENV PORT=8000
 
-# Start SSH and HTTP server only
+# Start services
 CMD ["/start"]
