@@ -31,12 +31,7 @@ RUN mkdir -p /run/sshd && \
     echo root:choco | chpasswd
 
 # Clone your bot repository
-RUN git clone https://github.com/Choco-criminal/gand-phar-repo.git
 
-# Install Python dependencies
-RUN cd gand-phar-repo/Choco-master && \
-    python3 -m pip install --upgrade pip && \
-    python3 -m pip install -r requirements.txt || true
 
 # Create startup script
 RUN echo '#!/bin/bash' > /start && \
@@ -55,8 +50,7 @@ RUN echo '#!/bin/bash' > /start && \
     echo 'python3 -m http.server ${PORT:-8000} --bind 0.0.0.0 > /dev/null 2>&1 &' >> /start && \
     echo '' >> /start && \
     echo 'echo "[INFO] Starting your bot now..."' >> /start && \
-    echo 'cd gand-phar-repo/Choco-master' >> /start && \
-    echo 'bash start' >> /start && \
+   
     chmod +x /start
 
 # Expose ports
